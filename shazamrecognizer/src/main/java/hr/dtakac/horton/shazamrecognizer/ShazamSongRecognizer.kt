@@ -1,28 +1,21 @@
 package hr.dtakac.horton.shazamrecognizer
 
-import hr.dtakac.horton.domain.usecases.recognizesong.RecognizeSongResult
-import hr.dtakac.horton.domain.recognizer.SongRecognizer
-import hr.dtakac.horton.shazamrecognizer.fingerprint.NativeShazamFingerprintGenerator
-import hr.dtakac.horton.shazamrecognizer.useragent
-import java.time.Duration
 import com.google.gson.Gson
+import hr.dtakac.horton.domain.entities.Art
+import hr.dtakac.horton.domain.entities.RecognizedSong
+import hr.dtakac.horton.domain.recognizer.SongRecognizer
+import hr.dtakac.horton.domain.usecases.recognizesong.RecognizeSongResult
+import hr.dtakac.horton.shazamrecognizer.fingerprint.NativeShazamFingerprintGenerator
 import hr.dtakac.horton.shazamrecognizer.fingerprint.ShazamFingerprintResult
 import hr.dtakac.horton.shazamrecognizer.useragent.Companion.USER_AGENTS
-import kotlinx.coroutines.Dispatchers
-import okhttp3.Headers
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.time.Duration
 import java.util.*
 import java.util.concurrent.TimeUnit
 
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.RequestBody.Companion.asRequestBody
-
 //TODO: DISPATCHER
-//TODO: USERAGENTS
-
 
 //TODO: IMPLEMENT SHAZAM RECON AND BACKEND COMMUNICATION. CHECK SONGREC CODE FOR REFERENCES
 /*
@@ -50,10 +43,23 @@ data class Signature( //That data comes from the Rust crosscompiled code. Check 
     val uri: String
 )
 
+data class ShazamJSON(
+    val track: Track
+)
+
+data class Track(
+    val images: Images
+)
+
+data class Images(
+    val coverart: String,
+    val coverarthq: String
+)
+
 class ShazamSongRecognizer : SongRecognizer {
 
     private val gson = Gson()
-    private val dispatcherProvider =
+    private val dispatcherProvider = //TODO Figure out how to use the dispatcherProvider
     private val fingerprintGenerator = NativeShazamFingerprintGenerator(gson, dispatcherProvider)
 
 
@@ -61,13 +67,19 @@ class ShazamSongRecognizer : SongRecognizer {
 
     override suspend fun recognize(songFilePath: String): RecognizeSongResult{
 
-
         //Get fingerprint
         val fingerprintResult = fingerprintGenerator.getFingerprint(songFilePath)
 
         if (fingerprintResult is ShazamFingerprintResult.Success){ //Request
 
-            //TODO
+            //TODO Coroutine to call queryShazam()
+
+
+            val result = "" //TODO
+
+            val parsedResult = parseShazamJSONtoRecognizedSong(result)
+
+            return RecognizeSongResult.Success(parsedResult)
 
 
         }
@@ -78,7 +90,7 @@ class ShazamSongRecognizer : SongRecognizer {
 
 
 
-    private fun buildShazamRequestBody(fingerprint: ShazamFingerprintResult.Success): RequestBody {
+    private fun queryShazam(fingerprint: ShazamFingerprintResult.Success): String? { //Returns JSON from Shazam
         val timestamp_ms = System.currentTimeMillis()
 
         //Geolocation could be random generated
@@ -100,18 +112,60 @@ class ShazamSongRecognizer : SongRecognizer {
             .add("Content-Language", "en_US")
             .build()
 
+        // convert postData to JSON
+        val json = Gson().toJson(postData)
+
+        val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
         //Create client and build request
         val client = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .build()
 
-
-
+        //Create and send post request
         val request = Request.Builder()
-            .url("$url?sync=true&webv3=true&sampling=true&connected=&shazamapiversion=v3&sharehub=true&video=v3")
+            .url(url)
+            .post(body)
             .headers(headers)
-            .post(postData.toRequestBody("application/json; charset=utf-8".toMediaType())) //TODO: CHECK HOW TO CREATE BODY WITH OKHTTP3
             .build()
+
+        //Execute request
+        val response = client.newCall(request).execute()
+
+        //Return response as json
+        if (response.isSuccessful) {
+            //Return as json
+            return Gson().toJson(response.body)
+        }
+
+        throw RuntimeException("Shazam Request Error!")
+
+    }
+
+    //TODO: REWORK THE PARSER TO GET THE THUMBNAILS URL....
+    private fun parseShazamJSONtoRecognizedSong(json: String): RecognizedSong {
+
+        val response = gson.fromJson(json,RecognizedSong::class.java) //Deserialize json to RecognizedSong object
+
+        val title = response.title
+        val subtitle = response.subtitle
+        val art = getCoverImage(json) //TODO: Get thumbnail from request
+        val recognitionTimestamp = response.recognitionTimestamp
+        val releaseDate = response.releaseDate
+
+        return RecognizedSong(title,subtitle,art, recognitionTimestamp, releaseDate)
+
+    }
+
+    private fun getCoverImage(json: String): Art {
+
+        val response = gson.fromJson(json,ShazamJSON::class.java)
+
+        val cover = response.track.images.coverart
+        val coverhq =response.track.images.coverarthq
+
+        return Art(coverhq,cover)
+
     }
 
 
