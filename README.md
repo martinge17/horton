@@ -1,6 +1,13 @@
 # Horton
 Music recognition app for Android.
 
+**This project is an extension of [Horton by davidtakac](https://github.com/davidtakac/horton) providing the communication with Shazam backend.**
+
+## Disclaimer
+
+- ⚠️ The project is under **active** development.
+
+
 ## Description
 Horton recognizes songs playing in your surroundings (e.g. coffee shop, bar, club, car) and saves them to local storage for easy access later. It only communicates with services required for song recognition. 
 
